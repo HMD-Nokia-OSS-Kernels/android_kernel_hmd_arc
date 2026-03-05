@@ -1,0 +1,33 @@
+LOCAL_DIR := $(GET_LOCAL_DIR)
+
+MODULE := $(LOCAL_DIR)
+
+GET_BOARDID_FROM_GPIO ?= false
+
+# shared platform code
+MODULE_SRCS += \
+	$(LOCAL_DIR)/debug.c \
+	$(LOCAL_DIR)/init.c \
+	$(LOCAL_DIR)/power.c
+
+ifeq ($(GET_BOARDID_FROM_GPIO), true)
+MODULE_SRCS += \
+	$(LOCAL_DIR)/boardid.c
+
+GLOBAL_DEFINES += \
+	CONFIG_BOARDID_ENCODING_GPIO_NUMS=6
+endif
+
+# Match DTBO by BoardID
+SPRD_DTBO_BOARDID ?= 0
+ifneq ($(SPRD_DTBO_BOARDID), 0)
+GLOBAL_DEFINES += \
+        CONFIG_BOARDID_BASE=$(SPRD_DTBO_BOARDID) \
+        CONFIG_BOARDID_DEFAULTID=$(SPRD_DTBO_BOARDID) \
+        CONFIG_MATCH_DTBO_BY_BOARDID
+
+endif
+
+include make/module.mk
+
+

@@ -1,0 +1,10 @@
+LOCAL_DIR := $(GET_LOCAL_DIR)
+
+GLOBAL_INCLUDES += \
+	$(LOCAL_DIR)/include
+
+MODULES += $(LOCAL_DIR)/mmc
+
+ifeq ($(UFS_SUPPORT),1)
+MODULES += $(LOCAL_DIR)/ufs
+endif

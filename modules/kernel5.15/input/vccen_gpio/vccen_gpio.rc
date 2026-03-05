@@ -1,0 +1,3 @@
+on post-fs
+    insmod ${ro.vendor.ko.mount.point}/odmko/vccen_gpio.ko
+

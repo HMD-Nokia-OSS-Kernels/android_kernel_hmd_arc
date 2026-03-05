@@ -1,0 +1,233 @@
+#
+# The MIT License (MIT)
+# Copyright (c) 2008-2015 Travis Geiselbrecht
+# Copyright (c) 2022, Spreadtrum Communications.
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+
+
+LOCAL_DIR := $(GET_LOCAL_DIR)
+MODULE := $(LOCAL_DIR)
+
+MEMBASE := 0xbf000000
+MEMSIZE := 0x00F00000   # 15 MB (heap size = 15 MB -_end)
+CUSTOM_DEFAULT_STACK_SIZE:=0x2000 #thread stack size 8k+0x100(padding)
+KERNEL_LOAD_OFFSET := 0 # 0MB
+
+ifeq ($(ARCH),arm64)
+ARM_CPU := cortex-a55
+WITH_SMP ?= 0
+WITH_KERNEL_VM := 0
+GLOBAL_DEFINES += \
+    CONFIG_ARM64 \
+    CONFIG_PHYS_64BIT
+
+else ifeq ($(ARCH),arm)
+ARCH := arm
+ARM_CPU := cortex-a7
+WITH_SMP ?= 0
+KERNEL_BASE := $(MEMBASE)
+GLOBAL_DEFINES += \
+    CONFIG_ARM \
+    CONFIG_SYS_64BIT_LBA
+
+else
+$(error ARCH = $(BSP_BOARD_ARCH) is not null)
+
+endif
+
+# Enable it for debug build
+ifneq ($(DEBUG), 0)
+WITH_FUNCTION_SYMBOLS ?= 1
+endif
+
+ifneq ($(WITH_SMP), 0)
+MODULE_SRCS += \
+    $(LOCAL_DIR)/secondary_boot.S
+endif
+
+MODULE_SRCS += \
+    $(LOCAL_DIR)/sprd_bl.c
+
+ifneq ($(SPRD_ZEBU_SUPPORT)$(SPRD_HAPS_SUPPORT), 1)
+GLOBAL_DEFINES += \
+	DT_PLATFORM_ID=9621 \
+	CONFIG_SYS_PROMPT="qogirn6l> "
+else
+GLOBAL_DEFINES += \
+	DT_PLATFORM_ID=9610 \
+	CONFIG_SYS_PROMPT="qogirn6l> "
+endif
+
+GLOBAL_DEFINES += MMU_WITH_TRAMPOLINE=1 \
+
+GLOBAL_DEFINES += \
+    ADI_R5P1_VER \
+    CONFIG_ADIE_9620 \
+    CONFIG_ADIE_UMP9620 \
+    CONFIG_ADIE_UMP9621 \
+    CONFIG_ADIE_UMP9622 \
+    CONFIG_AON_LPC_EN \
+    CONFIG_AP_LPC_EN \
+    CONFIG_CLOCK_AUTO_GATE_EN \
+    CONFIG_SYS_HZ=1000 \
+    CONFIG_SPRD_TIMER_CLK=1000 \
+    CONFIG_PARTITIONS \
+    CONFIG_EFI_PARTITION \
+    CONFIG_DOS_PARTITION \
+    HAVE_BLOCK_DEVICE \
+    ARCH_DMA_MINALIGN=64 \
+    SPRD_SPARSE_SUPER_SPEEDUP \
+    SP_IRAM_ADDR=0x62800000 \
+    SP_IRAM_SIZE=0x10000 \
+    CH_IRAM_ADDR=0x6501B000 \
+    CH_IRAM_SIZE=0x60000 \
+    AON_IRAM_ADDR=0x6501ac00 \
+    AON_IRAM_SIZE=0x200 \
+    CONFIG_RFSPIRW
+
+ifneq ($(SPRD_ZEBU_SUPPORT), 1)
+GLOBAL_DEFINES += \
+    CONFIG_UFS \
+    CONFIG_MMC \
+    CONFIG_MMC_SPRD_SDHCR11P3 \
+    CONFIG_MMC_RST_N_FUNCTION
+#    CONFIG_MMC_HS200_SUPPORT \
+#    CONFIG_MMC_SUPPORTS_TUNING \
+#    CONFIG_MMC_UHS_SUPPORT
+
+# ufs support
+UFS_SUPPORT:=1
+
+# charger
+GLOBAL_DEFINES += \
+         CALIB_RESISTANCE_MICRO_OHMS=2000
+
+# download: check ddr/flash size
+GLOBAL_DEFINES += \
+    CONFIG_EMMC_DDR_CHECK_TYPE
+
+# fastboot: N6 size
+GLOBAL_DEFINES += \
+    CONFIG_FASTBOOT_N6
+
+# fastboot speedup
+GLOBAL_DEFINES += \
+    CONFIG_WR_SPARSE \
+    CONFIG_WRBG_SPARSE
+
+endif
+
+# Romcode support spl double slot
+GLOBAL_DEFINES += \
+	CONFIG_SPL_DOUBLE_SLOT
+
+# mem layout:fastboot
+GLOBAL_DEFINES += \
+    FB_BUF_ADDR=0xd0000000 \
+    FB_BUF_SIZE=0x10000000 \
+    FB_NV_ADDR=0xF0000000
+
+#   FB_NV_SIZE=0x2000000    FIXNV_SIZE*2
+# memory layout:download
+GLOBAL_DEFINES += \
+    DL_EMMC_BUF_ADDR=0xd0000000 \
+    DL_EMMC_BUF_SIZE=0x10000000 \
+    DL_ALT1_BUF_ADDR=0x92000000 \
+    DL_ALT1_BUF_SIZE=0x00200000 \
+    DL_ALT2_BUF_ADDR=0x92200000 \
+    DL_ALT2_BUF_SIZE=0x00200000 \
+    DL_SPARSE_TEMP_BUF_ADDR=0x93000000 \
+    DL_SPARSE_TEMP_BUF_SIZE=0x00200000
+# memory layout:log
+GLOBAL_DEFINES += \
+    LOG_RESERVED_ADDR=0xffef0000 \
+    LOG_RESERVED_SIZE=0x00080000
+# memory layout:secboot
+GLOBAL_DEFINES += \
+    ARG_START_BASE=0x98100000 \
+    VBMETA_IMG_BASE=0x99000000 \
+    VERIFY_BASE=0x99800000
+# memory layout: lcd
+GLOBAL_DEFINES += \
+    BMP_RESERVED_ADDR=0x9d000000 \
+    LOGO_RESERVED_ADDR=0xbe000000 \
+    LOGO_BUFFER_SIZE=0x9e4000
+# memory layout: sml
+GLOBAL_DEFINES += \
+    SML_RESERVED_ADDR=0xb0000000 \
+    SML_RESERVED_SIZE=0x00040000
+# memory layout: tos
+GLOBAL_DEFINES += \
+    TOS_RESERVED_ADDR=0xb0040000 \
+    TOS_RESERVED_SIZE=0x03fc0000
+#ptm reserved
+GLOBAL_DEFINES += \
+    PTM_RESERVED_ADDR=0xa5000000 \
+    PTM_RESERVED_SIZE=0x00a00000
+
+# uid
+GLOBAL_DEFINES += \
+    UID_START=102 \
+    UID_END=103 \
+    UID_DOUBLE=1
+
+# I2C
+WITH_SPRD_HW_I2C := 0
+
+# SMPL
+WITH_SMPL := 1
+
+# serial number -UID
+SPRD_UID_FORMAT_16 := true
+
+# CP
+NR_FIXNV_SIZE ?= 0x1900000
+NR_FIXNV_ADDR ?= 0x8CC55000
+NR_RUNNV_SIZE ?= 0x1B00000
+FIXNV_SIZE := $(NR_FIXNV_SIZE)
+GLOBAL_DEFINES += \
+    CONFIG_SUPPORT_NR \
+    CONFIG_NOT_BACKUP_NV \
+    PSCP_IRAM_ADDRESS=0x65003400 \
+    PHYCP_IRAM_ADDRESS=0x65004400 \
+    NR_FIXNV_SIZE=$(NR_FIXNV_SIZE) \
+    NR_RUNNV_SIZE=$(NR_RUNNV_SIZE) \
+    NR_FIXNV_ADDR=$(NR_FIXNV_ADDR) \
+    NR_RUNNV_ADDR="(NR_FIXNV_ADDR+NR_FIXNV_SIZE)" \
+    NR_MODEM_SIZE=0x1100000 \
+    NR_MODEM_ADDR=0x96000000 \
+    NR_PHY_SIZE=0x1200000 \
+    NR_PHY_ADDR=0x9A400000 \
+    FIXNV_SIZE=$(NR_FIXNV_SIZE)
+
+
+ifeq ($(SPRD_SENSOR_HUB_LK),1)
+GLOBAL_DEFINES += \
+	CONFIG_SENSOR_I2C_MATRIX_BASE=0x64710018 \
+	CONFIG_SENSOR_I2C_MATRIX_VALUE=0x27543018 \
+	CONFIG_SENSOR_HUB_LK
+endif
+
+GLOBAL_DEFINES += \
+    LOG_PARTITION_SIZE=0x1000000
+
+include make/module.mk

@@ -1,0 +1,81 @@
+From 98e6b19c2416a9d98fe6716a0f8dfc72216bc4a2 Mon Sep 17 00:00:00 2001
+From: fanjunmin <fanjunmin@awinic.com>
+Date: Fri, 6 May 2022 17:29:58 +0800
+Subject: [PATCH] hal_multiscene update
+
+---
+ vendor/sprd/modules/audio/whale/audio_hw.c | 19 ++++++++++++++++++-
+ vendor/sprd/modules/audio/whale/audio_hw.h |  3 +++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/vendor/sprd/modules/audio/whale/audio_hw.c b/vendor/sprd/modules/audio/whale/audio_hw.c
+index a622c9c5..8783b211 100644
+--- a/vendor/sprd/modules/audio/whale/audio_hw.c
++++ b/vendor/sprd/modules/audio/whale/audio_hw.c
+@@ -299,10 +299,11 @@ int aw_init(struct tiny_audio_device *adev)
+     adev->g_awinic_skt.process = (AwHandle_t)dlsym(adev->g_awinic_skt.awinic_lib,"AwinicHandle");
+     adev->g_awinic_skt.setMediaInfo = (AwSetMediaInfo_t)dlsym(adev->g_awinic_skt.awinic_lib,"AwinicSetMediaInfo");
+     adev->g_awinic_skt.setVmax = (AwSetVmax_t)dlsym(adev->g_awinic_skt.awinic_lib,"awinic_set_vmax");
++	adev->g_awinic_skt.switchScene = (AwSwitchScene_t)dlsym(adev->g_awinic_skt.awinic_lib,"awinic_switch_scene");
+
+     if (adev->g_awinic_skt.getalgoinfo == NULL || adev->g_awinic_skt.getSize == NULL || adev->g_awinic_skt.init == NULL|| adev->g_awinic_skt.setMediaInfo==NULL
+         || adev->g_awinic_skt.end == NULL || adev->g_awinic_skt.process == NULL || adev->g_awinic_skt.reset == NULL ||
+-        adev->g_awinic_skt.setVmax == NULL) {
++        adev->g_awinic_skt.setVmax == NULL || adev->g_awinic_skt.switchScene == NULL) {
+         ALOGE("%s: Awinic get skt function Failed !",__func__);
+         dlclose(adev->g_awinic_skt.awinic_lib);
+         adev->g_awinic_skt.awinic_lib = NULL;
+@@ -314,6 +315,17 @@ int aw_init(struct tiny_audio_device *adev)
+
+     return 0;
+ }
++
++static uint32_t g_scene_id = 0;
++static bool g_scene_flag = false;
++
++void aw_set_scene_id(uint32_t scene_id)
++{
++	g_scene_id = scene_id;
++	ALOGI("%s(), Awinic g_scene_id == %u", __FUNCTION__, g_scene_id);
++	g_scene_flag = true;
++}
++
+ #endif
+
+ //#define MINI_AUDIO
+@@ -949,6 +961,10 @@ int normal_out_write(struct tiny_stream_out *out, void *buffer,
+
+        if(out->awinic_skt.is_module_ready == true) {
+             aw_vmax_update(&out->awinic_skt);
++			if (g_scene_flag == true) {
++				out->awinic_skt.switchScene(out->awinic_skt.module_context_buffer, g_scene_id);
++				g_scene_flag = false;
++			}
+             out->awinic_skt.process(out->awinic_skt.module_context_buffer,buffer,bytes);
+        }
+    }
+@@ -4355,6 +4371,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
+     out->awinic_skt.process = adev->g_awinic_skt.process;
+     out->awinic_skt.setMediaInfo = adev->g_awinic_skt.setMediaInfo;
+     out->awinic_skt.setVmax = adev->g_awinic_skt.setVmax;
++	out->awinic_skt.switchScene = adev->g_awinic_skt.switchScene;
+
+     ret = out->awinic_skt.getalgoinfo();
+     if(ret != 0) {
+diff --git a/vendor/sprd/modules/audio/whale/audio_hw.h b/vendor/sprd/modules/audio/whale/audio_hw.h
+index ae9be8b5..780f9f1a 100755
+--- a/vendor/sprd/modules/audio/whale/audio_hw.h
++++ b/vendor/sprd/modules/audio/whale/audio_hw.h
+@@ -61,6 +61,9 @@
+
+ #ifdef AWINIC_EFFECT_SUPPORT
+ #include "AwinicAPI.h"
++
++void aw_set_scene_id(uint32_t scene_id);
++
+ #endif
+
+
+--
+2.28.0.308.g675a4aa
+

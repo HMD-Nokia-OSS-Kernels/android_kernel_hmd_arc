@@ -1,0 +1,9 @@
+on post-fs
+    insmod ${ro.vendor.ko.mount.point}/odmko/icnl9911_ctp.ko
+
+
+on factorytest
+    insmod ${ro.vendor.ko.mount.point}/odmko/icnl9911_ctp.ko
+
+on cali-fs
+    insmod ${ro.vendor.ko.mount.point}/odmko/icnl9911_ctp.ko

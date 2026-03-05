@@ -1,0 +1,61 @@
+# wbk Kbuild for Focaltech Fingerprint Driver
+
+# 模块名称
+KO_MODULE_NAME := focaltech_fp
+
+# 模块源码路径
+KO_MODULE_PATH := $(src)
+
+# 源文件列表
+KO_MODULE_SRC := \
+    $(KO_MODULE_PATH)/ff_core.c
+
+# 编译选项
+ccflags-y += -DDEBUG
+
+# MTK平台相关配置
+CONFIG_FINGERPRINT_FOCALTECH_ARCH_MTK := n
+ifeq ($(CONFIG_ARCH_MEDIATEK),y)
+	CONFIG_FINGERPRINT_FOCALTECH_ARCH_MTK := y
+	ccflags-$(CONFIG_DRM_MEDIATEK_V2) += -I$(srctree)/drivers/gpu/drm/mediatek/mediatek_v2/
+	ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_ARCH_MTK
+	KO_MODULE_SRC += $(KO_MODULE_PATH)/ff_chip.c
+
+	ifeq ($(filter y m, $(CONFIG_TRUSTKERNEL_TEE_SUPPORT)),)
+		ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_SPI_SUPPORT
+		ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_SPICLK_SUPPORT
+		KO_MODULE_SRC += $(KO_MODULE_PATH)/ff_spi.c
+	endif
+endif
+
+# TEE REE 配置
+CONFIG_FINGERPRINT_FOCALTECH_TEE_REE := n
+ifeq ($(CONFIG_FINGERPRINT_FOCALTECH_TEE_REE),y)
+	ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_TEE_REE
+endif
+
+# 非MTK平台配置
+ifneq ($(CONFIG_FINGERPRINT_FOCALTECH_ARCH_MTK),y)
+	ifeq ($(CONFIG_FINGERPRINT_FOCALTECH_TEE_REE),y)
+		ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_TEE_REE
+		ccflags-y += -DCONFIG_FINGERPRINT_FOCALTECH_SPI_SUPPORT
+		KO_MODULE_SRC += $(KO_MODULE_PATH)/ff_spi.o $(KO_MODULE_PATH)/ff_chip.c
+	endif
+endif
+
+# Microtrust TEE 支持
+ifneq ($(filter y m, $(CONFIG_MICROTRUST_TEE_SUPPORT)),)
+	include $(srctree)/drivers/tee/teei/Makefile.include
+endif
+
+# Trustkernel TEE 支持
+ifneq ($(filter y m, $(CONFIG_TRUSTKERNEL_TEE_SUPPORT)),)
+	ccflags-y += -I$(srctree)/drivers/misc/mediatek/tkcore/include/
+endif
+
+#
+# Final Objects
+#
+obj-m := $(KO_MODULE_NAME).o
+# Comment it if the only object file has the same name with module
+$(KO_MODULE_NAME)-y := $(patsubst $(src)/%.c,%.o,$(KO_MODULE_SRC))

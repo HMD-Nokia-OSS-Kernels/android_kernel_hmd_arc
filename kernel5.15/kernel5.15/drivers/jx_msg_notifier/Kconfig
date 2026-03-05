@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# jx msg notifier drivers configuration
+#
+
+menu "jx msg notifier"
+
+config JX_MSG_NOTIFIER
+	tristate "jx msg notifier"
+	help
+	  Support jx msg notifier Feature
+
+	  Say Y here to build support for jx msg notifier.
+	  To compile this driver as a module, choose M here
+
+endmenu

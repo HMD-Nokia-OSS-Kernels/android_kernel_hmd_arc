@@ -1,0 +1,1 @@
+MODULE_SRCS += $(GET_LOCAL_DIR)/smcall.S

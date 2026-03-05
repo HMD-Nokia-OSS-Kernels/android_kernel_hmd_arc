@@ -1,0 +1,18 @@
+LOCAL_DIR := $(GET_LOCAL_DIR)
+
+MODULE := $(LOCAL_DIR)
+
+MODULE_INCLUDES := \
+	lib/elf/include
+
+MODULE_SRCS += \
+	$(LOCAL_DIR)/debug.c
+
+ifeq ($(WITH_FUNCTION_SYMBOLS), 1)
+GLOBAL_DEFINES += \
+	WITH_FUNCTION_SYMBOLS
+endif
+EXTRA_LINKER_SCRIPTS += $(LOCAL_DIR)/debug.ld
+DEBUG_ADD_FUNCTION_SYMBOL_SCRIPT := $(LOCAL_DIR)/add_fsymbol_data.sh
+
+include make/module.mk

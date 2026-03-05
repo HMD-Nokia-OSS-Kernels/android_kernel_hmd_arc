@@ -1,0 +1,7 @@
+on post-fs
+    insmod ${ro.vendor.ko.mount.point}/socko/aw9610x.ko
+    chmod 666 /sys/aw9610x/operation_mode
+	
+on factorytest
+    insmod ${ro.vendor.ko.mount.point}/socko/aw9610x.ko
+    chmod 666 /sys/aw9610x/operation_mode

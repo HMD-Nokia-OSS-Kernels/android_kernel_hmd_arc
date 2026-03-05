@@ -1,0 +1,197 @@
+/*
+ * Copyright (c) 2008-2015 Travis Geiselbrecht
+ *
+ * Use of this source code is governed by a MIT-style
+ * license that can be found in the LICENSE file or at
+ * https://opensource.org/licenses/MIT
+ */
+#include <lib/io.h>
+#include <lk/err.h>
+#include <ctype.h>
+#include <lk/debug.h>
+#include <assert.h>
+#include <lk/list.h>
+#include <string.h>
+#include <lib/cbuf.h>
+#include <arch/ops.h>
+#include <platform.h>
+#include <platform/debug.h>
+#include <kernel/thread.h>
+#include <lk/init.h>
+#include <sprd_log.h>
+#if WITH_SMP
+#include <arch/arch_ops.h>
+const char core[4][8] = {"[c0] ", "[c1] ", "[c2] ", "[c3] "};
+#endif
+char print_buffer[SMP_MAX_CPUS][PRINT_BUFFER_SIZE];
+char *print_bufp[SMP_MAX_CPUS];
+volatile int printf_lock_owner = -1;
+volatile spin_lock_t printf_lock = SPIN_LOCK_INITIAL_VALUE;
+volatile int only_save_flag[SMP_MAX_CPUS];
+volatile int always_printf_flag[SMP_MAX_CPUS];
+#ifdef CONFIG_SPRD_GICV3
+#define SPRD_PRINTF_LOCK(state) spin_lock_saved_state_t state; spin_lock_irqsave(&printf_lock, state)
+#define SPRD_PRINTF_UNLOCK(state) spin_unlock_irqrestore(&printf_lock, state)
+#else
+#define SPRD_PRINTF_LOCK(state) sprd_spin_lock(&printf_lock)
+#define SPRD_PRINTF_UNLOCK(state) sprd_spin_unlock(&printf_lock)
+#endif
+
+/* routines for dealing with main console io */
+
+#if WITH_LIB_SM
+#define PRINT_LOCK_FLAGS SPIN_LOCK_FLAG_IRQ_FIQ
+#else
+#define PRINT_LOCK_FLAGS SPIN_LOCK_FLAG_INTERRUPTS
+#endif
+
+static spin_lock_t print_spin_lock = 0;
+static struct list_node print_callbacks = LIST_INITIAL_VALUE(print_callbacks);
+
+#if CONSOLE_HAS_INPUT_BUFFER
+#ifndef CONSOLE_BUF_LEN
+#define CONSOLE_BUF_LEN 256
+#endif
+
+/* global input circular buffer */
+cbuf_t console_input_cbuf;
+static uint8_t console_cbuf_buf[CONSOLE_BUF_LEN];
+#endif // CONSOLE_HAS_INPUT_BUFFER
+
+/* print lock must be held when invoking out, outs, outc */
+static void out_count(const char *str, size_t len, uint cpuid) {
+    print_callback_t *cb;
+    size_t i;
+
+    /* print to any registered loggers */
+    if (!list_is_empty(&print_callbacks)) {
+        spin_lock_saved_state_t state;
+        spin_lock_save(&print_spin_lock, &state, PRINT_LOCK_FLAGS);
+
+        list_for_every_entry(&print_callbacks, cb, print_callback_t, entry) {
+            if (cb->print)
+                cb->print(cb, str, len);
+        }
+
+        spin_unlock_restore(&print_spin_lock, state, PRINT_LOCK_FLAGS);
+    }
+
+    /* write out the serial port */
+    if(printf_lock_owner == cpuid) {
+        for (i = 0; i < len; i++) {
+            platform_dputc(str[i]);
+            update_bootloader_log(str[i]);
+        }
+    } else {
+        SPRD_PRINTF_LOCK(state);
+        printf_lock_owner = cpuid;
+        for (i = 0; i < len; i++) {
+            platform_dputc(str[i]);
+            update_bootloader_log(str[i]);
+        }
+        if(!always_printf_flag[cpuid]) { //was used for panic to show dump info completely
+            printf_lock_owner = -1;
+            SPRD_PRINTF_UNLOCK(state);
+            check_bootloader_log_buffer();
+        }
+    }
+}
+
+static void out_save(const char *str, size_t len, uint cpuid) {
+    size_t i;
+
+    if(printf_lock_owner == cpuid) {
+        for (i = 0; i < len; i++)
+            update_bootloader_log(str[i]);
+    } else {
+        SPRD_PRINTF_LOCK(state);
+        printf_lock_owner = cpuid;
+        for (i = 0; i < len; i++)
+            update_bootloader_log(str[i]);
+        if(!always_printf_flag[cpuid]) { //was used for panic to show dump info completely
+            printf_lock_owner = -1;
+            SPRD_PRINTF_UNLOCK(state);
+            check_bootloader_log_buffer();
+        }
+    }
+}
+
+void register_print_callback(print_callback_t *cb) {
+    spin_lock_saved_state_t state;
+    spin_lock_save(&print_spin_lock, &state, PRINT_LOCK_FLAGS);
+
+    list_add_head(&print_callbacks, &cb->entry);
+
+    spin_unlock_restore(&print_spin_lock, state, PRINT_LOCK_FLAGS);
+}
+
+void unregister_print_callback(print_callback_t *cb) {
+    spin_lock_saved_state_t state;
+    spin_lock_save(&print_spin_lock, &state, PRINT_LOCK_FLAGS);
+
+    list_delete(&cb->entry);
+
+    spin_unlock_restore(&print_spin_lock, state, PRINT_LOCK_FLAGS);
+}
+
+static ssize_t __debug_stdio_write(io_handle_t *io, const char *s, size_t len) {
+    static uint newline_flag[SMP_MAX_CPUS];
+    char *str = s;
+    uint cpu = arch_curr_cpu_num();
+
+    if(newline_flag[cpu] == 0) {
+        print_bufp[cpu] = print_buffer[cpu];
+#if WITH_SMP
+        strcat(print_bufp[cpu], core[cpu]);
+        print_bufp[cpu] += strlen(core[cpu]);
+#endif
+        newline_flag[cpu] = 1;
+    }
+
+    for (size_t i = 0; i < len; i++)
+        *print_bufp[cpu]++ = *str++;
+
+    if (s[len-1] == '\n') {
+        *print_bufp[cpu] = 0;
+        newline_flag[cpu] = 0;
+        if(only_save_flag[cpu]) // determine whether to save only without output by uart
+            out_save(print_buffer[cpu], strlen(print_buffer[cpu]), cpu);
+        else
+            out_count(print_buffer[cpu], strlen(print_buffer[cpu]), cpu);
+    }
+
+    return len;
+}
+
+static ssize_t __debug_stdio_read(io_handle_t *io, char *s, size_t len) {
+    if (len == 0)
+        return 0;
+
+#if CONSOLE_HAS_INPUT_BUFFER
+    ssize_t err = cbuf_read(&console_input_cbuf, s, len, true);
+    return err;
+#else
+    int err = platform_dgetc(s, true);
+    if (err < 0)
+        return err;
+
+    return 1;
+#endif
+}
+
+#if CONSOLE_HAS_INPUT_BUFFER
+void console_init_hook(uint level) {
+    cbuf_initialize_etc(&console_input_cbuf, sizeof(console_cbuf_buf), console_cbuf_buf);
+}
+
+LK_INIT_HOOK(console, console_init_hook, LK_INIT_LEVEL_PLATFORM_EARLY - 1);
+#endif
+
+/* global console io handle */
+static const io_handle_hooks_t console_io_hooks = {
+    .write  = __debug_stdio_write,
+    .read   = __debug_stdio_read,
+};
+
+io_handle_t console_io = IO_HANDLE_INITIAL_VALUE(&console_io_hooks);
+

@@ -1,0 +1,14 @@
+trace feature is used to count the function running time
+depend on gcc compilation option: -finstrument-functions
+
+if you want to use this feature, follow the belowing:
+1. add 'SPRD_TRACE_SUPPORT := 1' and 'SPRD_LOG_SUPPORT := 0' in project/<board>.mk
+2. add 'MODULE_CFLAGS += -finstrument-functions' in your module, such as: target/ums512_1h10/rule.mk
+3. output the trace data(use tools to read uboot_log partition, or get 0-uboot.log in ylog)
+4. cp the "lk.elf.sym.sorted" file in obj to a folder
+5. cp trace data to the same folder
+6. use tool(proftool, build proftool.c) to parse trace data
+
+if you have any questions, please contact:
+sai.song@unisoc.com
+changmao.guo@unisoc.com

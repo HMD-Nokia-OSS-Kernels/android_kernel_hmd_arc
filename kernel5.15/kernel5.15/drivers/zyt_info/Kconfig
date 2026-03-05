@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# ZYT INFO drivers configuration
+#
+
+menu "ZYT Info"
+
+config ZYT_INFO
+	tristate "ZYT Info"
+	help
+	  Support ZYT Info Feature
+
+	  Say Y here to build support for ZYT Info.
+	  To compile this driver as a module, choose M here
+
+endmenu

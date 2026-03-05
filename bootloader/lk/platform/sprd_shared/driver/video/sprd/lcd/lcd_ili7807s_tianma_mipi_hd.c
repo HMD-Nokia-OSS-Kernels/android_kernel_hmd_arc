@@ -1,0 +1,229 @@
+/*
+ * Copyright (C) 2017 Spreadtrum Communications Inc.
+ */
+
+#include "../sprd_panel.h"
+#include "../sprd_dsi.h"
+#include "../dsi/mipi_dsi_api.h"
+#include "../sprd_dphy.h"
+#include "gpio_plus.h"
+#include <i2c.h>
+
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
+
+#define ILI7807S_TIANMA_ID 0x20
+
+static uint8_t init_data[] = {
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x06,
+	0x23, 0x00, 0x00, 0x02, 0x3E, 0xE2,
+	0x23, 0x00, 0x00, 0x02, 0x80, 0x00,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x07,		//Page7
+	0x23, 0x00, 0x00, 0x02, 0x11, 0x16,
+	0x23, 0x00, 0x00, 0x02, 0x29, 0x80,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x02,		//Page2
+	0x23, 0x00, 0x00, 0x02, 0x1B, 0x03,
+	0x23, 0x00, 0x00, 0x02, 0x3F, 0x10,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x00,		//Page0
+	0x23, 0x00, 0x00, 0x02, 0x35, 0x10,
+	0x39, 0x00, 0x00, 0x03, 0x51, 0x0F, 0xF0,
+	0x23, 0x00, 0x00, 0x02, 0x53, 0x2C,
+	0x23, 0x00, 0x00, 0x02, 0x55, 0x03,
+	0x23, 0x78, 0x00, 0x02, 0x11, 0x00,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x03,
+	0x23, 0x00, 0x00, 0x02, 0x83, 0x60,			//8 bit
+	0x23, 0x00, 0x00, 0x02, 0x84, 0x00,		        //125KHz
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x1E,   	//Page1E
+	0x23, 0x00, 0x00, 0x02, 0x81, 0x18,
+	0x23, 0x00, 0x00, 0x02, 0x83, 0x18,
+	0x23, 0x00, 0x00, 0x02, 0x85, 0x0C,
+	0x23, 0x00, 0x00, 0x02, 0x86, 0xB2,
+	0x23, 0x00, 0x00, 0x02, 0xD5, 0x1F,
+	0x23, 0x00, 0x00, 0x02, 0xD6, 0x1F,
+	0x23, 0x00, 0x00, 0x02, 0xD7, 0x25,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x12,
+	0x23, 0x00, 0x00, 0x02, 0xD0, 0x57,
+	0x23, 0x00, 0x00, 0x02, 0xD2, 0x17,
+	0x23, 0x00, 0x00, 0x02, 0xD3, 0x0A,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x11,
+	0x23, 0x00, 0x00, 0x02, 0xCB, 0x17,
+	0x23, 0x00, 0x00, 0x02, 0xCC, 0x0A,
+	0x23, 0x00, 0x00, 0x02, 0xCD, 0x9E,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x0B,
+	0x23, 0x00, 0x00, 0x02, 0xCD, 0x71,
+	0x23, 0x00, 0x00, 0x02, 0xD0, 0x88,
+	0x23, 0x00, 0x00, 0x02, 0xD1, 0x88,
+	0x23, 0x00, 0x00, 0x02, 0xDF, 0x72,
+	0x23, 0x00, 0x00, 0x02, 0xE2, 0x88,
+	0x23, 0x00, 0x00, 0x02, 0xE3, 0x88,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x02,
+	0x23, 0x00, 0x00, 0x02, 0x01, 0x35,
+	0x39, 0x00, 0x00, 0x04, 0xFF, 0x78, 0x07, 0x00,		//Page0
+	0x23, 0x14, 0x00, 0x02, 0x29, 0x00,
+	CMD_END
+};
+
+static uint8_t sleep_in_data[] ={
+	0x13, 0x0A, 0x00, 0x01, 0x28,
+	0x13, 0x78, 0x00, 0x01, 0x10,
+	CMD_END
+};
+
+static int mipi_dsi_send_cmds(struct sprd_dsi *dsi, void *data)
+{
+	uint16_t len;
+	struct dsi_cmd_desc *cmds = data;
+	int i = 0;
+
+	if ((cmds == NULL) || (dsi == NULL))
+		return -1;
+
+	for (; cmds->data_type != CMD_END;) {
+		len = (cmds->wc_h << 8) | cmds->wc_l;
+		mipi_dsi_dcs_write(dsi, cmds->payload, len);
+		pr_err("cmds->data_type debug:0x%x\n",cmds->data_type);
+		for (i =0; i < len; i++){
+			pr_err("data[%d]:0x%x\n",i,cmds->payload[i]);
+			pr_err("\n");
+		}
+		if (cmds->wait)
+			msleep(cmds->wait);
+		cmds = (struct dsi_cmd_desc *)(cmds->payload + len);
+	}
+	return 0;
+}
+
+static int ili7807s_init(void)
+{
+	struct sprd_dsi *dsi = &dsi_device;
+	struct sprd_dphy *dphy = &dphy_device;
+
+	mipi_dsi_lp_cmd_enable(dsi, true);
+	mipi_dsi_send_cmds(dsi, init_data);
+	mipi_dsi_set_work_mode(dsi, SPRD_MIPI_MODE_VIDEO);
+	mipi_dsi_state_reset(dsi);
+	mipi_dphy_hs_clk_en(dphy, true);
+
+	return 0;
+}
+
+static int ili7807s_readid(struct panel_info *info)
+{
+#if 0
+    struct sprd_dsi *dsi = &dsi_device;
+	uint8_t read_buf[4] = {0};
+	int i, ret = 0;
+	u8 bias_config[2][2] = {{0x00, 0x13}, {0x01, 0x13}};
+
+	mipi_dsi_lp_cmd_enable(dsi, true);
+	mipi_dsi_set_max_return_size(dsi, 1);
+	mipi_dsi_dcs_read(dsi, 0xDA, &read_buf, 1);
+
+	if ((read_buf[0] == 0x20) && (read_buf[1] == 0x00) && (read_buf[2] == 0x00)) {
+		pr_info("ili7807s read id success!\n");
+		if (info->need_config_bias) {
+			for (i = 0; i < sizeof(bias_config)/sizeof(bias_config[0]); i++) {
+				ret = i2c_send(info->lcd_i2c_bus_num, info->lcd_i2c_slaver_addr, (unsigned char *)bias_config[i], ARRAY_SIZE(bias_config[i]));
+				if (ret < 0) {
+					pr_err("config lcd i2c bias power failed\n");
+					break;
+				}
+			}
+		}
+		return 0;
+	}
+
+	pr_err("ili7807s read id failed!\n");
+	return -1;
+    #endif
+	pr_err("ili7807s_readid don't need match\n");
+	pr_err("ili7807s_readid skip\n");
+	return 0;
+}
+
+static int ili7807s_power(int on)
+{
+	if (on) {
+#ifdef CONFIG_LCM_GPIO_AVDDEN
+		sprd_gpio_request(CONFIG_LCM_GPIO_AVDDEN);
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_AVDDEN, 1);
+		mdelay(10);
+#endif
+#ifdef CONFIG_LCM_GPIO_AVEEEN
+		sprd_gpio_request(CONFIG_LCM_GPIO_AVEEEN);
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_AVEEEN, 1);
+		mdelay(20);
+#endif
+
+		sprd_gpio_request(CONFIG_LCM_GPIO_RSTN);
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_RSTN, 1);
+		mdelay(5);
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_RSTN, 0);
+		mdelay(5);
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_RSTN, 1);
+		mdelay(20);
+	} else {
+		sprd_gpio_direction_output(CONFIG_LCM_GPIO_RSTN, 0);
+		mdelay(5);
+	}
+
+	return 0;
+}
+
+static int ili7807s_sleep_in(void)
+{
+	struct sprd_dsi *dsi = &dsi_device;
+
+	mipi_dsi_lp_cmd_enable(dsi, true);
+	mipi_dsi_send_cmds(dsi, sleep_in_data);
+	pr_info("ili7807s_sleep_in end\n");
+	return 0;
+}
+
+static struct panel_ops ili7807s_ops = {
+	.init = ili7807s_init,
+	.read_id = ili7807s_readid,
+	.power = ili7807s_power,
+	.sleep_in = ili7807s_sleep_in，
+};
+
+static struct panel_info ili7807s_info = {
+	/* common parameters */
+	.lcd_name = "lcd_ili7807s_tianma_mipi_hd",
+	.type = SPRD_PANEL_TYPE_MIPI,
+	.bpp = 24,
+	/* .fps = 90, */
+	.width = 900,
+	.height = 2000,
+
+	/* DPI specific parameters */
+	.pixel_clk = 174568000,
+	.rgb_timing = {
+		.hfp = 22,
+		.hbp = 22,
+		.hsync = 4,
+		.vfp = 14,
+		.vbp = 30,
+		.vsync = 2,
+	},
+
+	/* MIPI DSI specific parameters */
+	.phy_freq = 1047408,
+	.lane_num = 4,
+	.work_mode = SPRD_MIPI_MODE_VIDEO,
+	.burst_mode = PANEL_VIDEO_BURST_MODE,
+	/*.bl_type = BL_TYPE_MIPI, */
+	.nc_clk_en = false,
+	.dpi_clk_div = 6,
+	.video_lp_cmd_enable = true,
+	.hporch_lp_disable = true,
+	.bl_type = BL_TYPE_PWM,
+	/*.bl_config_bit = 12, */
+	.need_config_bias = true,
+	.lcd_i2c_bus_num = 5,
+	.lcd_i2c_slaver_addr = 0x3e,
+};
+
+struct panel_driver ili7807s_tianma_driver = {
+	.info = &ili7807s_info,
+	.ops = &ili7807s_ops,
+};
